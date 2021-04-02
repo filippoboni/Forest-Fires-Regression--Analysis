@@ -1,0 +1,16 @@
+---
+title: "Tesina MML"
+author: "Filippo Boni"
+date: "2/4/2021"
+output: html_document
+---
+
+## Introduzione
+Forest fires analysis through regression to predict possible fires and burned area
+
+##Dataset
+```{r}
+fires <- read.csv(file = "forestfires.csv")
+View(fires)
+```
+
