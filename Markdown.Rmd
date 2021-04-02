@@ -8,9 +8,11 @@ output: html_document
 ## Introduzione
 Forest fires analysis through regression to predict possible fires and burned area
 
-##Dataset
+## Dataset
+firstly i read the dataset, then I add a binary column derived from fires$area with "yes" if the value of area is greater than zero, "no" otherwhise
 ```{r}
 fires <- read.csv(file = "forestfires.csv")
-View(fires)
+attach(fires)
+fires$fire <- rep("No",length(fires$X))
+fires$fire[fires$area>0] <-"Yes"
 ```
-
