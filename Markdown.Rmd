@@ -6,13 +6,19 @@ output: html_document
 ---
 
 ## Introduzione
-Forest fires analysis through regression to predict possible fires and burned area
+Forest fires analysis through regression to predict possible fires and burned area;
+in this project our aim is, in the first part, to predict the burned area of forest fires in the northeast region of Portugal. Our prediction will be based on spacial, temporal and weather variables where the fire is spotted.  
 
-## Dataset
-firstly i read the dataset, then I add a binary column derived from fires$area with "yes" if the value of area is greater than zero, "no" otherwhise
+## Dataset Overview
+The data we are using to predict the creation and the intensity of forest fires has been created by Cortez and Moraiz and acquired from the UCI Machine Learning Repo. It consists of 517 observations of forest fires and wildfires from Montesinho Park, located in Portugal, collected from January 2000 to December 2003. The dataset is composed by 13 variables including the output variable *area* (i.e. the area of the forest fire in hectares).
+
+## Variables 
+
 ```{r}
-fires <- read.csv(file = "forestfires.csv")
-attach(fires)
-fires$fire <- rep("No",length(fires$X))
-fires$fire[fires$area>0] <-"Yes"
+#read data
+fires <- read.csv(file = "forestfires.csv",header = TRUE,stringsAsFactors = TRUE)
+fires$X <- as.factor(fires$X)
+fires$Y <- as.factor(fires$Y)
+
+str(fires)
 ```
