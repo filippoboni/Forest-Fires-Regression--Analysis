@@ -2,7 +2,9 @@
 title: "Tesina MML"
 author: "Filippo Boni"
 date: "2/4/2021"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 ```{r}
 #imports
@@ -15,39 +17,69 @@ library(leaps)
 options(max.print = 100)
 ```
 
-## Introduzione
+## Introduction
 Forest fires analysis through regression to predict possible fires and burned area;
 in this project our aim is, in the first part, to predict the burned area of forest fires in the northeast region of Portugal. Our prediction will be based on spacial, temporal and weather variables where the fire is spotted.  
 
 ## Dataset Overview
-The data we are using to predict the creation and the intensity of forest fires has been created by Cortez and Moraiz and acquired from the UCI Machine Learning Repo. It consists of 517 observations of forest fires and wildfires from Montesinho Park, located in Portugal, collected from January 2000 to December 2003. The dataset is composed by 13 variables including the output variable *area* (i.e. the area of the forest fire in hectares).
+The data we are using to predict the creation and the intensity of forest fires has been created by Cortez and Moraiz and acquired from the UCI Machine Learning Repo. It consists of 517 observations of forest fires and wildfires from Montesinho Park, located in Portugal, collected from January 2000 to December 2003. The dataset is composed by 13 variables including the output variable *area* (i.e. the area of the forest fire in hectares) and 12 explanatory variables consisting of spatial and temporal variables, FWI component variables and weather variables.
 
-## Variables 
+#### Variables 
 ```{r}
 #read data
-fires <- read.csv(file = "forestfires.csv",header = TRUE,stringsAsFactors = TRUE)
-fires$X <- as.factor(fires$X)
-fires$Y <- as.factor(fires$Y)
+fires <- read.csv(file = "forestfires.csv",header = TRUE)
 
+fires$month <- factor(fires$month,levels =  c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))
+fires$day <- factor(fires$day,levels =  c("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
 #create column fire for future logistic/classification
-fires$fire <- rep("No",length(fires$X))
-fires$fire[fires$area>0] <-"Yes"
+#fires$fire <- rep("No",length(fires$X))
+#fires$fire[fires$area>0] <-"Yes"
 
 #set the new column as categorical
-fires$fire <- as.factor(fires$fire)
+#fires$fire <- as.factor(fires$fire)
 attach(fires)
-str(fires)
+head(fires)
 ```
 
-## EDA
-By a first analysis of the outcome variable *area* we can see that the dataset has approximately the same number of small fires (identified with 0) and big ones, again we see how this dataset may be better for a binary classification. But let's move on on the linear regression.
+#### Exploratory visualization of data
+Let's first visualize the distribution of the quantitative variables
+```{r fig2, fig.height=5,fig.width=6}
+par(mfrow=c(3,4))
+hist(fires$area,100,main = "area",xlab = "")
+hist(fires$X,100,main = "X",xlab = "")
+hist(fires$Y,100,main = "Y",xlab = "")
+hist(fires$FFMC,100,main = "FFMC",xlab = "")
+hist(fires$DMC,100,main = "DMC",xlab = "")
+hist(fires$DC,100,main = "DC",xlab = "")
+hist(fires$ISI,100,main = "ISI",xlab = "")
+hist(fires$temp,100,main = "temp",xlab = "")
+hist(fires$RH,100,main = "RH",xlab = "")
+hist(fires$wind,100,main = "wind",xlab = "")
+hist(fires$rain,70,main = "rain",xlab = "")
+```
+
+Let's visualize better the number of zero values of the *area* variable (representing a burned area smaller than $100 m^2$) with respect to the number of values greater that zero.
 ```{r}
-ggplot(fires,aes(x=fire))+
+big_fire <- rep("No",length(fires$X))
+big_fire[fires$area>0] <-"Yes"
+ggplot(fires,aes(x=big_fire))+
   geom_bar(fill = "steelblue")+ 
   xlab("Big Fire") + theme_minimal(base_size = 12)
 ```
 
-let's move on on the analysis of the target variable: in the later histograms we can see that the burned area is positively skewed with the majority of fires presenting a small size (a area lower that 100m2 was burned). As suggested from the paper of Martinez, to reduce the skeweness and and improve simmetry, the log transformation was applied to the area attribute. As we can see from the left histogram, the area is now less right-skewed and has a more gaussian shape, allowing us to stick with the normality assumption necessary for linear regression. 
+#### Correlations
+Let's now study the correlations among the variables, excluding the categorical ones
+```{r}
+drop_vars <- names(fires) %in% c("month","day","rain")
+ggcorr(fires[!drop_vars], label_size=4, label_color='black')
+```
+
+As we can see from the correlation plot, some variables are positively correlated (like DC-DMC and X-Y) and temp-RH are negatively correlated; however I believe that the correlations are not so high to induce multicollinearity in the models. Further analysis will be conduced in the later sections
+
+
+#### Processing
+Form the previous histograms we can see that *area* and *rain* are highly positively skewed with quite a lot of zero values. 
+As suggested from the paper of Martinez, to reduce the skeweness and and improve simmetry, the $log(x + 1)$ transformation was applied to the area attribute. As we can see from the left histogram, the area is now less right-skewed and has a more gaussian shape, allowing us to stick with the normality assumption necessary for linear regression. During the later experiments, *area* will always be $log(x+1)$ transformed. 
 ```{r}
 #skewness of the target variable
 area_plot <-ggplot(data = fires)+
@@ -55,7 +87,7 @@ area_plot <-ggplot(data = fires)+
   theme_minimal(base_size = 11)+
   xlab("Burned area (in hectares)")
 
-#applying log transformation to get a more gaussian like shape
+#applying log transformation to get a more gaussian like shape and adding 1 to account for zero values
 log_area_plot<-ggplot(data = fires)+
   geom_histogram(aes(log(area+1)),binwidth = 0.3,fill = "steelblue")+
   theme_minimal(base_size = 11)+
@@ -64,23 +96,94 @@ log_area_plot<-ggplot(data = fires)+
 grid.arrange(area_plot,log_area_plot,ncol=2)
 ```
 
-## Correlations
-Let's now study the correlations among the variables, excluding the categorical ones
+Before applying any transformation to *rain* let's observe that only 8 are non zero values and consequently the variance of this variable will be very low. I strongly believe that this variable will have a very low predictive power so it make sense to remove it and simplify the model.
 ```{r}
-drop_vars <- names(fires) %in% c("X","Y","month","day","fire")
-ggcorr(fires[!drop_vars], label=TRUE, label_size=4, label_color='black')
+table(fires$rain)
+var(fires$rain)
+```
+Finally we can see that spatial variables "X" and "Y" are both dummy variables ranging from 1-9 and 2-9.
+```{r}
+fires$X <- as.factor(fires$X)
+fires$Y <- as.factor(fires$Y)
 ```
 
-As we can see from the correlation plot, correlations pairs are pretty much zero (except for DC-DMC) and later we may think to drop one of the two in order to maintain the independence assumption for multiple linear regression
-
-we can see from the plot a pattern btw the two
+The dataset we are going to use for our regression task will be:
 ```{r}
-plot(fires[,6:7])
+drop_cols <- names(fires) %in% c("rain")
+fires_reg <- fires[!drop_cols]
+attach(fires_reg)
+head(fires_reg)
 ```
+
+
 
 ## Regression Models
-Firstly we will try to predict the burned area with the general linear model, then we will switch to logistic regression and predict whether a fire will be big or not.
-```{r}
+The first model we are gonna build is the general linear model.
 
+In the general linear model the main focus is to describe the probabilistic behaviour of a set of a quantitative responses $y_1...y_n$, considered realization of normal random variables $Y_1...Y_n$, in terms of a set of predictors collected in a matrix $X$.
+
+Matematically, a general linear model is represented by the following linear combination $$Y = X\beta + \epsilon$$ where $X$ is a $n \times p$ matrix containing a first column of 1 (that represent the intercept of the regression line) followed by the values of the p-1 predictors for all the n samples,$\beta$ is the column vector of dimension p-1 of parameters main object of the statistical inference and finally the $\epsilon$ n-dimensional column vector is a set of unobservable random variables (also called errors) which account for natural variability and other sources of uncertainty. This vector is assumed to represent a situation of normally distributed i.i.d errors added to the signal $X\beta$  with $\mu = 0$ and $var = \sigma^2I_{n \times n}$.
+
+The normality assumption of $\epsilon$ implies that Y will be normally distributed with each element having the same variance $$Y=X\beta + \epsilon \sim N_n(X\beta,\sigma^2I_{n \times n})$$
+
+#### OLS Regression
+Thanks to the assumption of Gaussian noise we can find the line for which the probability of the data is highest by solving the following optimization problem (inserisci sotto la spiegazione matematica per cui si passa dal max likelyhood al minimization problem): $$min_\beta \sum_{i=1} (y_i-X_i\beta)^2$$ where $min_\beta$ just means "find the value of $\beta$ that minimize the following", $X_i$ refers to the row $i$ of the matrix $X$ and $y_i$ is the i-th element of the column vector of the realizations of $Y$.
+
+By using some basic linear algebra to solve this minimization problem and assuming $X^T X$ is invertible, we can find the optimal estimates of $\beta$ $$\hat{\beta}(X^T X)^{-1}X^Ty$$ and the corresponding estimator, normally distributed too, being a linear combination of $Y$ $$\hat{\beta}(X^T X)^{-1}X^TY \sim N_p(\beta,\sigma^2(X^TX)^{-1})$$.  
+
+To properly interpret the coefficients of the OLS model, the following statistical assumptions must be satisfied:
+- *Normality* For fixed values of the independent variables, the dependent variable is normally distributed
+- *Independence* The observations are independent of each other
+- *Linearity* The true relationship between the dependent variable and the independent variables is linear
+- *Homoscedasticity* The variance of the dependent variable doesn’t vary with the levels of the independent variables.
+
+In the following sections, we will select different subset of explanatory variables, compute the OLS estimate and, after evaluating the best performing one, assess the satisfaction of the previous 4 points to validate it.
+
+#### Simple model
+Let's first build a simple model with a single continuous predictor (*temp*) to give better insights on how to interpret a linear regression model.
+In the simple linear regression settings we are going to fit a line $y = \beta_0 + \beta_1x$ to our data in order to find the *least squares line* (the best linear approximation to the true relation $area = \beta_0 + \beta_1temp$, also called *population regression line*). 
+The minimization problem becomes $$min_{\beta_0,\beta_1} \sum[y_i-(\beta_0+\beta_1x_i)]^2$$ and the solution is $$\hat{\beta_1} = \frac{\sum_{i=1}^{n}(x_i-\bar{x})(y_i-\bar{y})}{\sum_{i=1}^{n}(x_i-\bar{x})^2}$$ $$ \hat{\beta_0} = \bar{y}-\hat{\beta_1}\bar{x}$$ where $\bar{x}$ and $\bar{y}$ are the sample means.
+
+Below, the *summary()* results of the simple linear model are displayed:
+
+```{r}
+##first simple linear regression model 
+lm.simple <- lm(log(area+1) ~ temp,data = fires_reg)
+summary(lm.simple)
 ```
+
+The *Residuals* section displays some points of the residuals distribution giving some insights on how well the model is performing. Residuals are calculated as $Y-\hat{Y}$ so high values of residuals means predictions far from the ground-truth.
+
+In the *Coefficients* part we have the estimated values of the coefficients ($\hat{\beta_0},\hat{\beta_1}$), the Std. Error, useful to build confidence intervals on the true parameter $\beta_i$ with the form $\hat{\beta_i} ± 2SE(\hat{\beta_i})$, the t-values and the related p-values useful to reject or fail to reject the $H_0: \beta_i = 0$ for a explanatory variable *i*, when all the others variables are in the model. In this simple regression model we see that the *intercept* ha a low p-value (reject $H_0:\beta_0 = 0$) while *temp* has a high p-value (with a given confidence level the true value of $\beta_1$ is zero so it has no effect on the response variable). The same result can be deduced by observing the CI:
+```{r}
+confint(lm.simple)
+```
+having *temp* the zero value included in his confidence interval we make our believe to drop this variable stronger.
+
+Finally in the last part we have the *Residual Standard Error* (an estimate of the standard deviation of the errors $\epsilon$), the $R^2$ Statistics that provides a measure of fit in terms of the proportion of variance explained by the model and the *Global F Test*, to test the null hypothesis $H_0: \beta_1=\beta_2=...=\beta_{p-1}=0$ basing on the p-value. In our case the high *RSE* and the low $R^2$ statistics indicates a bad performing model.
+
+#### Complete model
+In this section we will create a basic model containing all the predictors and see how it behaves.
+```{r}
+lm.big <- lm(log(area+1) ~ .,data=fires_reg)
+summary(lm.big)
+```
+The reason why I decided to report the *summary()* of the complete model, even if 19 rows are omitted, is to point out how categorical variables with many levels (like *X*,*Y*,*day* and *month* in our case) are handled and how to interpret them. In general, when a factor has $l$ levels, $l-1$ dummy variables are used to code it, taking as reference the first level. The reason behind the $l-1$ is that we would generate linearly dependent columns in the $X$ matrix, making $X^\prime X$ a non invertible matrix, assumption necessary for OLS estimates. 
+
+For *day* and *month* the first levels taken as reference are:
+```{r}
+levels(day)[1]
+levels(month)[1]
+```
+Their coefficients are:
+```{r}
+#day coefficients
+round(lm.big$coefficients[grep("day",names(coefficients(lm.big)))],3)
+#month coefficients
+round(lm.big$coefficients[grep("month",names(coefficients(lm.big)))],3)
+```
+The coefficients represent the average area burnt with respect to the reference level and by analizing the *day* factor we can see that the highest coefficients values are in the weekend ("weekend effect") where the turism is higher and humans may have caused fires. As far as the *month*, December has the highest coefficients, and also here turism may play a key role in causing fires. 
+
+Similarly, by analyzing the coefficients of the spacial variables ($X\&Y$) I believe we can observe the coordinates where the most of the fires took place and deduce information about the territory (how much forest, presence of rivers etc...).
+
 
