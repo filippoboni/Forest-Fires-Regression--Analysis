@@ -227,7 +227,7 @@ print(anova(lm.M,lm.STM,lm.big))
 
 Looking at p-values for the F-statistic, we can conclude that the data does not provide enough evidence to reject the null in the case of *lm.STFWI* and *lm.STM*, while we fail to reject the null in the case of the *lm.big*. 
 
-Another way of comparing models is the the *Akaike’s Information Criterion*. *AIC* estimates the relative amount of information lost by a given model, focusing on the trade-off between the goodness of fit and the simplicity of the model. Lower values of information loss means higher quality of the model. $$AIC = 2(p+1) - 2ln(\hat{L})$$ where $\hat{L} is the maximized likelihood function and *p+1* is the number of estimated parameters in the model.
+Another way of comparing models is the the *Akaike’s Information Criterion*. *AIC* estimates the relative amount of information lost by a given model, focusing on the trade-off between the goodness of fit and the simplicity of the model. Lower values of information loss means higher quality of the model. $$AIC = 2(p+1) - 2ln(\hat{L})$$ where $\hat{L}$ is the maximized likelihood function and *p+1* is the number of estimated parameters in the model.
 
 ```{r}
 as.matrix(AIC(lm.big,lm.STFWI,lm.STM,lm.FWI,lm.M))
