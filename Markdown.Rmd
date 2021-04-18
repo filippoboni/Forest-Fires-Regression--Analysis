@@ -3,8 +3,12 @@ title: "Tesina MML"
 author: "Filippo Boni"
 date: "2/4/2021"
 output:
+  pdf_document:  
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
   html_document: default
-  pdf_document: default
 ---
 ```{r}
 #imports
@@ -58,14 +62,24 @@ hist(fires$wind,100,main = "wind",xlab = "")
 hist(fires$rain,70,main = "rain",xlab = "")
 ```
 
-Let's visualize better the number of zero values of the *area* variable (representing a burned area smaller than $100 m^2$) with respect to the number of values greater that zero.
+Let's visualize better the number of zero values of the *area* variable (representing a burned area smaller than $100 m^2$) and *rain* variable with respect to the number of values greater that zero. 
 ```{r}
 big_fire <- rep("No",length(fires$X))
 big_fire[fires$area>0] <-"Yes"
-ggplot(fires,aes(x=big_fire))+
+rain_yes <- rep("No",length(fires$X))
+rain_yes[fires$rain>0]<-"Yes"
+
+area_count <- ggplot(fires,aes(x=big_fire))+
   geom_bar(fill = "steelblue")+ 
-  xlab("Big Fire") + theme_minimal(base_size = 12)
+  xlab("Big Fire") + theme_minimal(base_size = 5)
+rain_count <-ggplot(fires,aes(x=rain_yes))+
+  geom_bar(fill = "steelblue")+ 
+  xlab("Rain") + theme_minimal(base_size = 5)
+
+grid.arrange(area_count,rain_count,ncol=2)
 ```
+
+The high skeweness of these two variables and the high number of zero values will be tackled in the ####processing phase and again in the second part when we will transform the analysis in a logistic regression task.
 
 #### Correlations
 Let's now study the correlations among the variables, excluding the categorical ones
@@ -142,7 +156,7 @@ In the following sections, we will select different subset of explanatory variab
 #### Simple model
 Let's first build a simple model with a single continuous predictor (*temp*) to give better insights on how to interpret a linear regression model.
 In the simple linear regression settings we are going to fit a line $y = \beta_0 + \beta_1x$ to our data in order to find the *least squares line* (the best linear approximation to the true relation $area = \beta_0 + \beta_1temp$, also called *population regression line*). 
-The minimization problem becomes $$min_{\beta_0,\beta_1} \sum[y_i-(\beta_0+\beta_1x_i)]^2$$ and the solution is $$\hat{\beta_1} = \frac{\sum_{i=1}^{n}(x_i-\bar{x})(y_i-\bar{y})}{\sum_{i=1}^{n}(x_i-\bar{x})^2}$$ $$ \hat{\beta_0} = \bar{y}-\hat{\beta_1}\bar{x}$$ where $\bar{x}$ and $\bar{y}$ are the sample means.
+The minimization problem becomes $$min_{\beta_0,\beta_1} \sum[y_i-(\beta_0+\beta_1x_i)]^2$$ and the solution is $$\hat{\beta_1} = \frac{\sum_{i=1}^{n}(x_i-\bar{x})(y_i-\bar{y})}{\sum_{i=1}^{n}(x_i-\bar{x})^2}$$ $$\hat{\beta_0} = \bar{y}-\hat{\beta_1}\bar{x}$$ where $\bar{x}$ and $\bar{y}$ are the sample means.
 
 Below, the *summary()* results of the simple linear model are displayed:
 
@@ -186,4 +200,37 @@ The coefficients represent the average area burnt with respect to the reference 
 
 Similarly, by analyzing the coefficients of the spacial variables ($X\&Y$) I believe we can observe the coordinates where the most of the fires took place and deduce information about the territory (how much forest, presence of rivers etc...).
 
+#### Smaller models
+Following the Cortez work, four distinct feature selection setups were tested: 
+- *STFWI*: spatial, temporal and the four FWI components;
+- *STM*: spatial, temporal and three weather variables (originally were four, but I removed *rain* in section xxx);
+- *FWI*: the four FWI components;
+- *M*: the three weather conditions;
 
+```{r}
+lm.STFWI <- lm(log(area+1) ~ X + Y + day + month + FFMC + ISI + DMC + DC, data = fires_reg)
+lm.STM <- lm(log(area+1) ~ X + Y + day + month + temp + RH + wind, data = fires_reg)
+lm.FWI <- lm(log(area+1) ~ FFMC + ISI + DMC + DC, data = fires_reg)
+lm.M <- lm(log(area+1) ~ temp + RH + wind, data = fires_reg)
+```
+
+#### Model Selection: ANOVA and AIC
+
+A good practice to select among nested models is to use the *ANOVA* test. We test the null hypothesis that the added predictors (i.e. the predictors non in common btw the models) have zero coefficients using an F-statistic.
+We will now compute the *ANOVA* test among the two couple of nested models defined above (lm.STFWI & lm.FWI, lm.STM & lm.m), including also the complete model:
+
+```{r}
+print(anova(lm.FWI,lm.STFWI,lm.big))
+
+print(anova(lm.M,lm.STM,lm.big))
+```
+
+Looking at p-values for the F-statistic, we can conclude that the data does not provide enough evidence to reject the null in the case of *lm.STFWI* and *lm.STM*, while we fail to reject the null in the case of the *lm.big*. 
+
+Another way of comparing models is the the *Akaike’s Information Criterion*. *AIC* estimates the relative amount of information lost by a given model, focusing on the trade-off between the goodness of fit and the simplicity of the model. Lower values of information loss means higher quality of the model. $$AIC = 2(p+1) - 2ln(\hat{L})$$ where $\hat{L} is the maximized likelihood function and *p+1* is the number of estimated parameters in the model.
+
+```{r}
+as.matrix(AIC(lm.big,lm.STFWI,lm.STM,lm.FWI,lm.M))
+```
+
+As a tradeoff between the results obtained by the *ANOVA* tests and the *AIC* values, I decided to select as best model to validate in the next section the *lm.STFWI* 
