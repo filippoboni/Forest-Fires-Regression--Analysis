@@ -5,6 +5,7 @@ library(ggplot2)
 library(tidyverse)
 library(GGally)
 library(leaps)
+library(caret)
 #set options
 options(max.print = 10000)
 
@@ -17,10 +18,6 @@ fires <- read.csv(file = "forestfires.csv",header = TRUE, stringsAsFactors = TRU
 
 #set the new column as categorical
 #fires$fire <- as.factor(fires$fire)
-
-#Convert month and day string variables into numeric values
-#fires$month <- as.numeric(as.factor(fires$month))
-#fires$day <- as.numeric(as.factor(fires$day))
 
 #visualize the variables distributions
 par(mfrow=c(3,4))
@@ -77,13 +74,66 @@ head(fires_reg)
 lm.simple <- lm(log(area+1) ~ temp,data = fires_reg)
 summary(lm.simple)
 
-#multiple linear regression: full model
-complete.lm <- lm(log(area+1) ~ .,data = fires)
-summary(complete.lm)
+## try performance by removing collinearity
+#drop_cols_coll <- names(fires) %in% c()
+#fires_coll <- fires[!drop_cols_coll]
+#lm.coll <- lm(log(fires_coll$area+1)~.,data=fires_coll)
+#sqrt(vif(lm.coll))
+#str(fires_coll)
 
-#plotting the most useful predictors for regression
-leaps <- regsubsets(log(area+1) ~ .,data = fires[,-14], nbest = 1)
-plot(leaps,scale = "adjr2")
-summary(leaps)
+lm.STM <- lm(log(area+1) ~ X + Y + day + month + temp + RH + 
+               wind, data = fires_reg)
+
+##Cross validation
+#defining training control
+set.seed(1)
+train.control <- trainControl(method = "cv", number = 10)
+
+#Train the models
+model.big <- train(log(area+1) ~ .,data = fires_reg,method="lm", trControl = train.control)
+model.STFWI <- train(log(area+1) ~ X + Y + day + month + FFMC + ISI + DMC + DC, data = fires_reg,method = "lm",trControl = train.control)
+model.STM <- train(log(area+1) ~ X + Y + day + month + temp + RH + wind, data = fires_reg, method = "lm",trControl = train.control)
+model.FWI <- train(log(area+1) ~ FFMC + ISI + DMC + DC, data = fires_reg,method = "lm",trControl = train.control)
+model.M <- train(log(area+1) ~ temp + RH + wind, data = fires_reg,method = "lm",trControl = train.control)
+
+##-------------------------------------------------------------------------------------------------------------------------------
+##tests on multinomial logistic
+fire_multinomial <- fires
+
+#Convert month and day string variables into numeric values
+fire_multinomial$month <- as.numeric(as.factor(fire_multinomial$month))
+fire_multinomial$day <- as.numeric(as.factor(fire_multinomial$day))
+
+#create the dataset with the categorical area
+drop_area <- names(fires) %in% c("area")
+fire_multinomial <- fire_multinomial[!drop_area]
+
+#set the 6 levels
+fire_multinomial$fire_class[fires$area == 0] <- 1
+fire_multinomial$fire_class[fires$area>0 & fires$area<=4] <- 2
+fire_multinomial$fire_class[fires$area>4 & fires$area<=40] <- 3
+fire_multinomial$fire_class[fires$area>40 & fires$area<=120] <- 4
+fire_multinomial$fire_class[fires$area>120 & fires$area<=400] <- 5
+fire_multinomial$fire_class[fires$area>400] <- 6
+
+#set the new column as a factor
+fire_multinomial$fire_class <- factor(fire_multinomial$fire_class,levels = c(1,2,3,4,5,6), ordered = TRUE)
+
+#build the ordered logic
+glm.cl <- polr(fire_multinomial$fire_class ~  X + Y + day + month + temp + RH + wind, data = fire_multinomial)
+summary(glm.cl)
+
+#try the performance
+set.seed(1)
+# creating training data as 80% of the dataset
+random_sample <- createDataPartition(fire_multinomial$fire_class, 
+                                     p = 0.8, list = FALSE)
+# generating training dataset and testing
+# from the random_sample
+training_dataset  <- fire_multinomial[random_sample, ]
+testing_dataset <- fire_multinomial[-random_sample, ]
+
+glm.cl <- polr(training_dataset$fire_class ~  X + Y + day + month + temp + RH + wind, data = training_dataset)
+predictions <- predict(glm.cl, testing_dataset)
 
 
