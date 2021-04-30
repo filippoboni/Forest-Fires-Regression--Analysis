@@ -1,40 +1,77 @@
 ---
-title: "Tesina MML"
+title: "Forest Fires Dataset Regression Analysis"
 author: "Filippo Boni"
-date: "2/4/2021"
 output:
-  pdf_document:  
-    toc: true
+  bookdown::pdf_document2:
+    toc: yes
     toc_depth: 3
-    number_sections: true
-    fig_caption: true
-  html_document: default
+    number_sections: yes
+    fig_caption: yes
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    toc_collapsed: yes
+    toc_depth: 4
+    number_sections: yes
+    theme: lumen
+    df_print: paged
+    code_folding: hide
+    fontsize: 14pt
+bibliography: references.bibtex
+link-citations: true
 ---
+
+# Introduction
+
+In this work we analyze a dataset of forest fires using the statistical approach of *regression*, focusing in the first part in predicting the scale of a woodland fireplace exploiting *general linear models* while in the second part in predicting the class of the scale of the fire exploiting *generalized linear models*. 
+Nowadays forest fires are dealt by collecting the satellite images of forest and if there is an any emergency caused by the fires the authorities are notified to mitigate its effects. Unfortunately, by the time the fire is taken down, the environment is already damaged. The presented research offers a new preventive approach to the forest fires emergency, where geo-spatial and weather condition data can be used to predict the eventuality of a forest fire.
+
+First we present the [dataset](#dataset) and the attribute description, we study their distributions and correlations. After some [processing](#processing), we dive into the [linear regression analysis](#lm), where we build different models based on different subsets of predictors. Finally, the problem is modeled under a [classification](#glm) point of view to tackle the high skewness of the target variable and the same steps applied in the linear regression part are applied here. 
+
+## Development Environment
+All the project is developed with R programming language in a R Markdown notebook. The main libraries used are the following
 ```{r message=FALSE, warning=FALSE}
 #imports
-library(gridExtra)
-library(ggplot2)
-library(tidyverse)
-library(GGally)
-library(leaps)
-library(caret)
-library(car)
-library(nnet)
-library(MASS)
-library(rms)
-options(max.print = 100)
+library(gridExtra) #combine plots in a grid
+library(ggplot2) #visualization of results and data
+library(tidyverse) #collection of R packages for data science
+library(GGally) #extension of ggplot2
+library(caret) #cross-validation
+library(car) #VIF 
+library(caTools) #partition the dataset
+library(MASS) #base package for statistics in R
+library(regclass) #confusion matrix
+library(bookdown)
+options(max.print = 100) #limit some printing
 ```
 
-## Introduction
+# Dataset Overview{#dataset}
 
-Forest fires analysis through regression to predict possible fires and burned area;
-in this project our aim is, in the first part, to predict the burned area of forest fires in the northeast region of Portugal. Our prediction will be based on spacial, temporal and weather variables where the fire is spotted.  
+The data we are using to predict the creation and the intensity of forest fires has been created by @morais and acquired from the UCI Machine Learning Repo. It consists of 517 observations of forest fires and wildfires from Montesinho Park, located in Portugal, collected from January 2000 to December 2003. The dataset is composed by 13 variables including the output variable *area* (i.e. the area of the forest fire in hectares) and 12 explanatory variables consisting of spatial and temporal variables, FWI component variables and weather variables.
 
-## Dataset Overview
+## Variables{#variables}
 
-The data we are using to predict the creation and the intensity of forest fires has been created by Cortez and Moraiz and acquired from the UCI Machine Learning Repo. It consists of 517 observations of forest fires and wildfires from Montesinho Park, located in Portugal, collected from January 2000 to December 2003. The dataset is composed by 13 variables including the output variable *area* (i.e. the area of the forest fire in hectares) and 12 explanatory variables consisting of spatial and temporal variables, FWI component variables and weather variables.
+UCI Repository provides some useful attributes information.
 
-#### Variables 
+| **Attribute** | **Description**                                                      |
+|-----------|------------------------------------------------------------------|
+| X         | x-axis spatial coordinate within the Montesinho park map: 1 to 9 |
+| Y         | y-axis spatial coordinate within the Montesinho park map: 2 to 9 |
+| month     | month of the year: 'jan' to 'dec'                                |
+| day       | day of the week: 'mon' to 'sun'                                  |
+| FFMC      | FFMC index from the FWI system: 18.7 to 96.20                    |
+| DMC       | DMC index from the FWI system: 1.1 to 291.3                      |
+| DC        | DC index from the FWI system: 7.9 to 860.6                       |
+| ISI       | ISI index from the FWI system: 0.0 to 56.10                      |
+| temp      | temperature in Celsius degrees: 2.2 to 33.30                     |
+| RH        | relative humidity in %: 15.0 to 100                              |
+| wind      | wind speed in km/h: 0.40 to 9.40                                 |
+| rain      | outside rain in mm/m2 : 0.0 to 6.4                               |
+| area      | the burned area of the forest (in ha): 0.00 to 1090.84           |
+
+The following picture helps understanding how the four indexes belonging to Canadian FWI (Fire Weather System) are generated:
+
+![FWI indexes](FWI.png) 
 
 ```{r}
 #read data
@@ -50,9 +87,10 @@ attach(fires)
 head(fires)
 ```
 
-#### Exploratory visualization of data
+## Exploratory Data Analysis{#eda}
 
-Let's first visualize the distribution of the quantitative variables
+Let's first visualize the frequencies of the quantitative variables by plotting the histograms with the number of occurrences on the y axis and the relative variable on the x axis
+
 ```{r fig2, fig.height=5,fig.width=6}
 par(mfrow=c(3,4))
 hist(fires$area,100,main = "area",xlab = "")
@@ -69,43 +107,49 @@ hist(fires$rain,70,main = "rain",xlab = "")
 ```
 
 Let's visualize better the number of zero values of the *area* variable (representing a burned area smaller than $100 m^2$) and *rain* variable with respect to the number of values greater that zero. 
-```{r}
-big_fire <- rep("No",length(fires$X))
-big_fire[fires$area>0] <-"Yes"
-rain_yes <- rep("No",length(fires$X))
-rain_yes[fires$rain>0]<-"Yes"
+```{r skewness-plots,fig.cap="zero values histograms"}
+big_fire <- rep(0,length(fires$X))
+big_fire[fires$area>0] <-"Greater that zero"
+rain_yes <- rep(0,length(fires$X))
+rain_yes[fires$rain>0]<-"Greater than zero"
 
 area_count <- ggplot(fires,aes(x=big_fire))+
   geom_bar(fill = "steelblue")+ 
-  xlab("Big Fire") + theme_minimal(base_size = 5)
+  xlab("area") + theme_minimal(base_size = 10)
 rain_count <-ggplot(fires,aes(x=rain_yes))+
   geom_bar(fill = "steelblue")+ 
-  xlab("Rain") + theme_minimal(base_size = 5)
+  xlab("rain") + theme_minimal(base_size = 10)
 
 grid.arrange(area_count,rain_count,ncol=2)
 ```
 
-The high skeweness of these two variables and the high number of zero values will be tackled in the ####processing phase and again in the second part when we will transform the analysis in a logistic regression task.
+The high skewness of these two variables and the high number of zero values will be tackled in the section \@ref(processing) and again in the second part (\@ref(glm)) when we will transform the analysis in a logistic regression task.
 
-#### Correlations
+## Correlations{#corr}
 
-Let's now study the correlations among the variables, excluding the categorical ones
+In the regression analysis one main goal is to isolate the relationship between each independent variable and the dependent one. If two or more predictors are strongly correlated (multicollinearity), it becomes difficult to estimate their effects independently on the response variable.  
+
 ```{r}
+#plotting correlation of pairs 
 drop_vars <- names(fires) %in% c("month","day","rain")
 ggcorr(fires[!drop_vars],label = TRUE, label_size=4, label_color='black')
 ```
 
-As we can see from the correlation plot, some variables are positively correlated (like DC-DMC and X-Y) and temp-RH are negatively correlated; however I believe that the correlations are not so high to induce multicollinearity in the models. 
+As we can see from the correlation plot, some variables are positively correlated (like *DC*-*DMC* and *X*-*Y*) and *temp*-*RH* are negatively correlated.
+By computing **VIF (Variable Inflation Factors)** we can determine the strength of the correlation between the independent variables and ensure no multicollinearity is present among the attributes. VIF exceeding 5 or 10 indicates high multicollinearity between that independent variable and the others and it should be removed from the model.
 ```{r}
-sqrt(vif(lm(log(area+1) ~.,data = fires)))
+#VIF computation
+round(vif(lm(log(area+1) ~ X + Y + FFMC + DMC + DC + ISI + temp + RH + wind,
+             data = fires)),1)
 ```
 
+No VIF exceeding the threshold so we can safely assume that variables are independent.
 
-#### Processing
+## Processing{#processing}
 
-Form the previous histograms we can see that *area* and *rain* are highly positively skewed with quite a lot of zero values. 
-As suggested from the paper of Martinez, to reduce the skeweness and and improve simmetry, the $log(x + 1)$ transformation was applied to the area attribute. As we can see from the left histogram, the area is now less right-skewed and has a more gaussian shape, allowing us to stick with the normality assumption necessary for linear regression. During the later experiments, *area* will always be $log(x+1)$ transformed. 
-```{r}
+In the previous histograms \@ref(fig:skewness-plots) we saw that *area* and *rain* are highly positively skewed with quite a lot of zero values. 
+As suggested from the paper of @morais, to reduce the skewness and and improve symmetry, the $log(x + 1)$ transformation is applied to the *area* attribute. 
+```{r transformed-area,fig.cap="log-transformation of area"}
 #skewness of the target variable
 area_plot <-ggplot(data = fires)+
   geom_histogram(aes(area),binwidth = 40)+
@@ -122,82 +166,84 @@ log_area_plot<-ggplot(data = fires)+
 grid.arrange(area_plot,log_area_plot,ncol=2)
 ```
 
-Before applying any transformation to *rain* let's observe that only 8 are non zero values and consequently the variance of this variable will be very low. I strongly believe that this variable will have a very low predictive power so it make sense to remove it and simplify the model.
-```{r}
-table(fires$rain)
-var(fires$rain)
+As we can see from the right histogram, the area is now less left-skewed and has a more gaussian shape, allowing us to stick with the normality assumption of the response variable necessary for linear regression. During the later experiments, *area* will always be $log(x+1)$ transformed.
+
+Before applying any transformation to *rain* let's observe that only 8 are non zero values and consequently the variance of this variable will be very low. 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+cat("rain values greater that zero = ",table(rain_yes)[2])
+cat("\n")
+cat("var[rain] = ", var(fires$rain))
 ```
-Finally we can see that spatial variables "X" and "Y" are both dummy variables ranging from 1-9 and 2-9.
+I strongly believe that this variable will have a very low predictive power so it make sense to remove it and simplify the model.
+
+
+Finally I decided to encode the spatial variables *X* and *Y* as categorical variables ranging from 1-9 and 2-9.
 ```{r}
 fires$X <- as.factor(fires$X)
 fires$Y <- as.factor(fires$Y)
-```
-
-The dataset we are going to use for our regression task will be:
-```{r warning=TRUE}
+#remove rain var
 drop_cols <- names(fires) %in% c("rain")
 fires_reg <- fires[!drop_cols]
-attach(fires_reg)
-head(fires_reg)
 ```
 
+# Regression Models
 
+As already anticipated in the Introduction, we will start by predicting *area* as a quantitative variable exploiting **General Linear Models** then we will transform *area* into a categorical response and build distinct **Generalized Linear Models**. In both the settings we will try to choose the best one using different methods.
 
-## Regression Models
+## General Linear Model{#lm}
 
-The first model we are gonna build is the general linear model.
+In the general linear model the main focus is to describe the probabilistic behavior of a set of a quantitative responses $y_1...y_n$, considered realization of normal random variables $Y_1...Y_n$, in terms of a set of predictors collected in a matrix $X$.
 
-In the general linear model the main focus is to describe the probabilistic behaviour of a set of a quantitative responses $y_1...y_n$, considered realization of normal random variables $Y_1...Y_n$, in terms of a set of predictors collected in a matrix $X$.
+Mathematically, a general linear model is represented by the following linear combination $$Y = X\beta + \epsilon$$ where $X$ is a $n \times p$ matrix containing a first column of 1 (that represent the intercept of the regression line) followed by the values of the $p-1$ predictors for all the n samples, $\beta$ is the column vector of dimension $p-1$ of parameters main object of the statistical inference and finally the $\epsilon$ n-dimensional column vector is a set of unobservable random variables (also called errors) which account for natural variability and other sources of uncertainty. This vector is assumed to represent a situation of normally distributed i.i.d errors added to the signal $X\beta$  with $\mu = 0$ and $var = \sigma^2I_{n \times n}$.
 
-Matematically, a general linear model is represented by the following linear combination $$Y = X\beta + \epsilon$$ where $X$ is a $n \times p$ matrix containing a first column of 1 (that represent the intercept of the regression line) followed by the values of the p-1 predictors for all the n samples,$\beta$ is the column vector of dimension p-1 of parameters main object of the statistical inference and finally the $\epsilon$ n-dimensional column vector is a set of unobservable random variables (also called errors) which account for natural variability and other sources of uncertainty. This vector is assumed to represent a situation of normally distributed i.i.d errors added to the signal $X\beta$  with $\mu = 0$ and $var = \sigma^2I_{n \times n}$.
+The normality assumption of $\epsilon$ implies that $Y$ will be normally distributed too with each element having the same variance $$Y=X\beta + \epsilon \sim N_n(X\beta,\sigma^2I_{n \times n})$$
 
-The normality assumption of $\epsilon$ implies that Y will be normally distributed with each element having the same variance $$Y=X\beta + \epsilon \sim N_n(X\beta,\sigma^2I_{n \times n})$$
+### OLS Regression{#ols}
 
-#### OLS Regression
+Thanks to the assumption of Gaussian noise we can find the line for which the probability of the data is highest by solving the following optimization problem: $$min_\beta \sum_{i=1} (y_i-X_i\beta)^2$$ where $min_\beta$ just means "find the value of $\beta$ that minimize the following", $X_i$ refers to the row $i$ of the matrix $X$ and $y_i$ is the i-th element of the column vector of the realizations of $Y$.
 
-Thanks to the assumption of Gaussian noise we can find the line for which the probability of the data is highest by solving the following optimization problem (inserisci sotto la spiegazione matematica per cui si passa dal max likelyhood al minimization problem): $$min_\beta \sum_{i=1} (y_i-X_i\beta)^2$$ where $min_\beta$ just means "find the value of $\beta$ that minimize the following", $X_i$ refers to the row $i$ of the matrix $X$ and $y_i$ is the i-th element of the column vector of the realizations of $Y$.
-
-By using some basic linear algebra to solve this minimization problem and assuming $X^T X$ is invertible, we can find the optimal estimates of $\beta$ $$\hat{\beta}(X^T X)^{-1}X^Ty$$ and the corresponding estimator, normally distributed too, being a linear combination of $Y$ $$\hat{\beta}(X^T X)^{-1}X^TY \sim N_p(\beta,\sigma^2(X^TX)^{-1})$$.  
+By using some basic linear algebra to solve this minimization problem and assuming $X^T X$ is invertible, we can find the optimal estimates of $\beta$ $$\hat{\beta}(X^T X)^{-1}X^Ty$$ and the corresponding estimator, normally distributed being a linear combination of $Y$, $$\hat{\beta}(X^T X)^{-1}X^TY \sim N_p(\beta,\sigma^2(X^TX)^{-1})$$.  
 
 To properly interpret the coefficients of the OLS model, the following statistical assumptions must be satisfied:
 
-- *Normality* For fixed values of the independent variables, the dependent variable is normally distributed
+- **Normality:** For fixed values of the independent variables, the dependent variable is normally distributed
 
-- *Independence* The observations are independent of each other (assumed to be true during the data collection process)
+- **Independence:** The observations are independent of each other (already verified with VIF in \@ref(corr))
 
-- *Linearity* The true relationship between the dependent variable and the independent variables is linear
+- **Linearity:** The true relationship between the dependent variable and the independent variables is linear
 
-- *Homoscedasticity* The variance of the dependent variable doesn’t vary with the levels of the independent variables.
+- **Homoscedasticity:** The variance of the dependent variable doesn’t vary with the levels of the independent variables.
 
-In the following sections, we will select different subset of explanatory variables, compute the OLS estimate and, after evaluating the best performing one, assess the satisfaction of the previous 4 points to validate it.
+In the following sections, we will select different subset of explanatory variables, compute the OLS estimate and, after choosing the best performing model, assess the satisfaction of the statistical assumptions to validate it.
 
-#### Simple model
+### Simple model
 
 Let's first build a simple model with a single continuous predictor (*temp*) to give better insights on how to interpret a linear regression model.
-In the simple linear regression settings we are going to fit a line $y = \beta_0 + \beta_1x$ to our data in order to find the *least squares line* (the best linear approximation to the true relation $area = \beta_0 + \beta_1temp$, also called *population regression line*). 
+In the simple linear regression settings we are going to fit a line $y = \beta_0 + \beta_1x$ to our data in order to find the *least squares line* (the best linear approximation to the true relation $area = \beta_0 + \beta_1temp$ called *population regression line*). 
 The minimization problem becomes $$min_{\beta_0,\beta_1} \sum[y_i-(\beta_0+\beta_1x_i)]^2$$ and the solution is $$\hat{\beta_1} = \frac{\sum_{i=1}^{n}(x_i-\bar{x})(y_i-\bar{y})}{\sum_{i=1}^{n}(x_i-\bar{x})^2}$$ $$\hat{\beta_0} = \bar{y}-\hat{\beta_1}\bar{x}$$ where $\bar{x}$ and $\bar{y}$ are the sample means.
 
 Below, the *summary()* results of the simple linear model are displayed:
 
 ```{r}
-##first simple linear regression model 
+#first simple linear regression model 
 lm.simple <- lm(log(area+1) ~ temp,data = fires_reg)
 summary(lm.simple)
 ```
 
 The *Residuals* section displays some points of the residuals distribution giving some insights on how well the model is performing. Residuals are calculated as $Y-\hat{Y}$ so high values of residuals means predictions far from the ground-truth.
 
-In the *Coefficients* part we have the estimated values of the coefficients ($\hat{\beta_0},\hat{\beta_1}$), the Std. Error, useful to build confidence intervals on the true parameter $\beta_i$ with the form $\hat{\beta_i} ± 2SE(\hat{\beta_i})$, the t-values and the related p-values useful to reject or fail to reject the $H_0: \beta_i = 0$ for a explanatory variable *i*, when all the others variables are in the model. In this simple regression model we see that the *intercept* ha a low p-value (reject $H_0:\beta_0 = 0$) while *temp* has a high p-value (with a given confidence level the true value of $\beta_1$ is zero so it has no effect on the response variable). The same result can be deduced by observing the CI:
+In the *Coefficients* part we have the estimated values of the regression coefficients ($\hat{\beta_0},\hat{\beta_1}$) that represents the mean change in the response variable for each one unit change in the independent variable when you hold all the other independent variables constant; the Std. Error, useful to build confidence intervals on the true parameter $\beta_i$ with the form $\hat{\beta_i} ± 2SE(\hat{\beta_i})$; the t-values and the related p-values useful to reject or fail to reject the $H_0: \beta_i = 0$ for a explanatory variable *i*, when all the others variables are in the model. In this simple regression model we see that the *intercept* ha a low p-value (reject $H_0:\beta_0 = 0$) while *temp* has a high p-value (with a given confidence level the true value of $\beta_1$ is zero so it has no effect on the response variable). The same result can be deduced by observing the CI:
 ```{r}
+#computing confidence intervals for the simple model
 confint(lm.simple)
 ```
-having *temp* the zero value included in his confidence interval we make our believe to drop this variable stronger.
+having *temp* the zero value included in his confidence interval we make our theoretical believe to drop this variable stronger.
 
 Finally in the last part we have the *Residual Standard Error* (an estimate of the standard deviation of the errors $\epsilon$), the $R^2$ Statistics that provides a measure of fit in terms of the proportion of variance explained by the model and the *Global F Test*, to test the null hypothesis $H_0: \beta_1=\beta_2=...=\beta_{p-1}=0$ basing on the p-value. In our case the high *RSE* and the low $R^2$ statistics indicates a bad performing model.
 
-#### Complete model
+### Complete Model{#lm_complete}
 
-In this section we will create a basic model containing all the predictors and see how it behaves.
+In this section we will create a model containing all the predictors in the dataset and see how it behaves.
 ```{r}
 lm.big <- lm(log(area+1) ~ .,data=fires_reg)
 summary(lm.big)
@@ -205,9 +251,10 @@ summary(lm.big)
 The reason why I decided to report the *summary()* of the complete model, even if 19 rows are omitted, is to point out how categorical variables with many levels (like *X*,*Y*,*day* and *month* in our case) are handled and how to interpret them. In general, when a factor has $l$ levels, $l-1$ dummy variables are used to code it, taking as reference the first level. The reason behind the $l-1$ is that we would generate linearly dependent columns in the $X$ matrix, making $X^\prime X$ a non invertible matrix, assumption necessary for OLS estimates. 
 
 For *day* and *month* the first levels taken as reference are:
-```{r}
-levels(day)[1]
-levels(month)[1]
+```{r echo=FALSE}
+cat("reference level for day: ",levels(day)[1])
+cat("\n")
+cat("reference level for month: ",levels(month)[1])
 ```
 Their coefficients are:
 ```{r}
@@ -216,17 +263,17 @@ round(lm.big$coefficients[grep("day",names(coefficients(lm.big)))],3)
 #month coefficients
 round(lm.big$coefficients[grep("month",names(coefficients(lm.big)))],3)
 ```
-The coefficients represent the average area burnt with respect to the reference level and by analizing the *day* factor we can see that the highest coefficients values are in the weekend ("weekend effect") where the turism is higher and humans may have caused fires. As far as the *month*, December has the highest coefficients, and also here turism may play a key role in causing fires. 
+The coefficients represent the average area burnt with respect to the reference level and by analyzing the *day* factor we can see that the highest coefficients values are in the weekend (**weekend effect**) where the turism is higher and humans may have caused fires. As far as the *month*, December has the highest coefficient, and also here turism may play a key role in causing fires. 
 
-Similarly, by analyzing the coefficients of the spacial variables ($X\&Y$) I believe we can observe the coordinates where the most of the fires took place and deduce information about the territory (how much forest, presence of rivers etc...).
+Similarly, by analyzing the coefficients of the spacial variables (*X*&*Y*) I believe we can observe the coordinates where the most of the fires took place and deduce information about the territory (how much forest, presence of rivers etc...).
 
-#### Smaller models
+### Smaller models{#smallerModelsLM}
 
-Following the Cortez work, four distinct feature selection setups were tested: 
+Following the @morais work, four distinct feature selection setups were tested: 
 
 - *STFWI*: spatial, temporal and the four FWI components;
 
-- *STM*: spatial, temporal and three weather variables (originally were four, but I removed *rain* in section xxx);
+- *STM*: spatial, temporal and three weather variables (originally were four, but I removed *rain* in section \@ref(processing));
 
 - *FWI*: the four FWI components;
 
@@ -241,30 +288,34 @@ lm.FWI <- lm(log(area+1) ~ FFMC + ISI + DMC + DC, data = fires_reg)
 lm.M <- lm(log(area+1) ~ temp + RH + wind, data = fires_reg)
 ```
 
+### Model Selection{#lm_selection}
+
 #### ANOVA and AIC
 
-A good practice to select among nested models is to use the *ANOVA* test. We test the null hypothesis that the added predictors (i.e. the predictors non in common btw the models) have zero coefficients using an F-statistic.
-We will now compute the *ANOVA* test among the two couple of nested models defined above (lm.STFWI & lm.FWI, lm.STM & lm.m), including also the complete model:
+A good practice to select among nested models is to use the *ANOVA* test. We test the null hypothesis that the added predictors (i.e. the predictors not in common between the models) have zero coefficients using an F-statistic.
+We will now compute the *ANOVA* test among the two couple of nested models defined above (*lm.STFWI* & *lm.FWI*, *lm.STM* & *lm.M*), including also the complete one:
 
 ```{r}
+#ANOVA for the two pairs of nested models
 print(anova(lm.FWI,lm.STFWI,lm.big))
 
 print(anova(lm.M,lm.STM,lm.big))
 ```
 
-Looking at p-values for the F-statistic, we can conclude that the data does not provide enough evidence to reject the null in the case of *lm.STFWI* and *lm.STM*, while we fail to reject the null in the case of the *lm.big*. 
+Looking at p-values for the F-statistic, we can conclude that the data provide enough evidence to **reject the null** in the case of *lm.STFWI* and *lm.STM*, while we **fail to reject** the null in the case of the *lm.big*. This means we prefer the two "medium sized" models by now. 
 
-Another way of comparing models is the the *Akaike’s Information Criterion*. *AIC* estimates the relative amount of information lost by a given model, focusing on the trade-off between the goodness of fit and the simplicity of the model. Lower values of information loss means higher quality of the model. $$AIC = 2(p+1) - 2ln(\hat{L})$$ where $\hat{L}$ is the maximized likelihood function and *p+1* is the number of estimated parameters in the model.
+Another way of comparing models is the the *Akaike’s Information Criterion*. *AIC* estimates the relative amount of information lost by a given model, focusing on the balance between the goodness of fit and the simplicity of the model. Lower values of information loss means higher quality of the model. $$AIC = 2(p+1) - 2ln(\hat{L})$$ where $\hat{L}$ is the maximized likelihood function and *p* is the number of independent predictors in the model.
 
 ```{r}
+#AIC computation 
 as.matrix(AIC(lm.big,lm.STFWI,lm.STM,lm.FWI,lm.M))
 ```
 
-As a tradeoff between the results obtained by the *ANOVA* tests and the *AIC* values, the model that seems to better fit the data with the lowest information loss is *lm.STFWI*, probably because it contains the temporal features (that as we saw in the xxx section can give some insights on human based fires), the spacial features (info about the territory) and the *FWI* indices that are built with the weather conditions.
+As a tradeoff between the results obtained in the *ANOVA* tests and the *AIC* values, the model that seems to better fit the data with the lowest information loss is *lm.STFWI*, probably because it contains the temporal features (that as we saw in the [Complete model section](#lm_complete) can give some insights on human based fires), the spacial features (presumably information about the territory) and the *FWI* indexes that are built with the weather conditions.
 
 #### K-fold Cross Validation
 
-To take a further step in the analysis of the performances of the presented models, we are gonna use cross-validation, a statistical tool to estimate the test error associated with our models. Setting K=10 as in the *Cortez* work, the data is splitted into K subset. Each of this partitions is gonna serve as test set for the model trained on the remaining K-1 subsets and the prediction error is recorded. Finally, when all the K subsets has served as test set, the average of the recorded errors is computed.
+To take a further step in the analysis of the performances of the presented models, we are gonna use **cross-validation**, a statistical tool to estimate the test error associated with our models. Setting K=10 as in the *Cortez* work, the data is splitted into K subset. Each of this partitions is gonna serve as test set for the model trained on the remaining K-1 subsets and the prediction error is recorded. Finally, when all the K subsets has served as test set, the average of the recorded errors is computed.
 
 For the computation of the cross-validation the library *caret* will be used and for the the evaluation of test error we will observe:
 
@@ -273,6 +324,8 @@ For the computation of the cross-validation the library *caret* will be used and
 - $R^2 = \frac{\sum_{i=1}^{n}(\hat{Y_i}-\bar{Y})}{\sum_{i=1}^{n}(Y_i-\bar{Y})}$ That is a measure of the variance explained by the model. The higher the $R^2$, the better the model.
 
 - $MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i-\hat{y_i}|$ That is an alternative to $RMSE$ less sensitive to outliers. The lower the $RMSE$, the better the model.
+
+We underline the fact that the errors refers to $log(area+1)$ as the unit and that, since in all models the dependent variable follows the same transformation, we can safely compare the results. 
 
 ```{r  warning=FALSE}
 #defining training control
@@ -304,53 +357,54 @@ res.df <- data.frame(RMSE,R2,MAE)
 row.names(res.df) <- models
 as.matrix(res.df)
 ```
-Analyzing these results we can see that in terms of variability explained by the model, the $STFWI$ is the one with better results; on the other hand $STM$ is the best performing one when we take also into consideration the prediction errors. 
+Analyzing these results we can see that, considering the distribution of the log transformed *area* shown in the histogram \@ref(fig:transformed-area), the errors are all pretty high. However we can observe that in terms of variability explained by the model, the *STFWI* is the one with better results but *STM* is the best performing one when we take also into consideration the prediction errors. 
 
-#### Validation of the model
+### Validation of the model{#val}
 
-As anticipated in section xxx, we are now assessing the validity of the model by evaluating the statistical assumptions of a regression analysis by using the residuals (remember that residuals are the **observable** distance $e=Y-\hat{Y}$) for diagnostic purposes. 
+As anticipated in the [OLS theory section](#ols), we are now assessing the validity of the model by evaluating the statistical assumptions of regression analysis, using the residuals (remember that residuals are the **observable** distance $e=Y-\hat{Y}$) for diagnostic purposes. 
 ```{r warning=FALSE}
 par(mfrow=c(2,2))
 plot(lm.STM)
 ```
-The *Residual vs Fitted* graph is useful to check for the linearity assumption: a horizontal line without distinct pattern is what we were looking for. As far as the normality of the response variable, we would expected values in the *Normal Q-Q* plot that followed the straight dotted line. Finally the *Scale-Location* graph have an increasing behaviuour and the variability of the residuals increases with the value of the fitted outcome variable.
+The *Residual vs Fitted* graph is useful to check for the linearity assumption: a horizontal line without distinct pattern is what we were looking for. As far as the normality of the response variable, we would expected values in the *Normal Q-Q* plot that followed the straight dotted line. Finally the *Scale-Location* graph have an increasing behavior and the variability of the residuals increases with the value of the fitted outcome variable.
+
+We can conclude that the Normality and the Homescedascity assumptions are not respected, as we were expecting since the bad performance obtained with the different evaluation methods. I believe the zero values of the dataset and the presence of outliers are the major cause to these results. 
+
+## Generalized Linear Model{#glm}
+
+All the presented models based on linear regression are performing poorly and are not able to explain well the response variable. 
+
+In order to tackle the issue of the zero values in the dependent variable and to try to improve the predictions, similarly to the work by @khan, I moved to a **Logistic Regression** approach by encoding the *area* feature as a binary categorical feature.
+
+### Basic theory 
+
+*Logistic Regression* belongs to Generalized Linear Models that, as for the general linear model, are characterized by a response vector $Y_1,...,Y_n$ of independent random variables with means $\mu_i = E(Y_i)$ and a linear combination of predictors $\eta = X\beta$. The new element with respect to the "old model" is a **link function** that depends on the family of the $Y$ distribution and connect the means $\mu_i$ and the linear combination $\eta$: $$g(\mu_i) = \eta_i$$
+
+The typical choice for bernoulli distributed response variables (as in our case with the binary transformed *area*) is the *logit link*: $$logit(p_i) = log(\frac{p_i}{1-p_i})$$ that follows a sigmoid function which limits its range of probabilities between 0 and 1, so that it make sense to apply the linear combination $$logit(p_i) = \sum_{j=0}^{p-1} \beta_jX_{ij}$$ 
 
 
-We can conclude that the Normality and the Homescedascity assumptions are not respected, as we were expecting since the bad performance obtained in section model selection. I believe the zero values of the dataset and the presence of outliers are the majour cause to these results. In the following section we are going to model the *area* variable as categorical and explore that solution 
-
-## Generalized Linear Model
-
-The results obtained in *model selection*, expecially in *Validation of the model* shows how all the presented models are performing poorly and are not able to explain the response variable. 
-
-In order to tackle the issue of the zero values in the dependent variable and to try to improve the predictions, similarly to the work by R. Rishickesh, A. Shahina, A. Nayeemulla Khan(cita meglio...), I moved to a **Logistic Regression** approach by encoding the *area* feature as a binary categorical feature.
-
-#### Basic theory 
-
-*Logistic Regression* belongs to Generalized linear models that, as for the general linear model, are characterized by a response vector $Y_1,...,Y_n$ of independent random variables with means $\mu_i = E(Y_i)$ and a linear combination of predictors $\eta = X\beta$. The new element wrt the "old model" is a **link function** that depends on the family of the $Y$ distribution and connect the means $\mu_i$ and the linear combination $\eta$: $$g(\mu_i) = \eta_i$$
-
-The typical choice for bernoulli distributed response variables (as in our case with *area*) is the *logit link*: $$logit(p_i) = log(\frac{p_i}{1-p_i})$$ that follows a sigmoid function which limits its range of probabilities between 0 and 1, so that it make sense to apply the linear combination $$logit(p_i) = \sum_{j=0}^{p-1} \beta_jX_{ij}$$ 
-
-
-If we apply the inverse transformation of the logit we obtain the *logistic distribution function (figurexx)*: $$p_i=\frac{e^{logit}}{1+e^{logit}}$$ 
+If we apply the inverse transformation of the logit we obtain the *logistic distribution function (figure \@ref(fig:logistic-plot))*: $$p_i=\frac{e^{logit}}{1+e^{logit}}$$ 
 where the probability $p_i=P(Y_i=1|X_i)$ is the focus of the prediction.
 
-```{r}
+```{r logistic-plot, fig.cap="logistic distribution function"}
 #define the logistic distribution function
 logistic <- function(l)(exp(l)/(1+exp(l)))
 #draw the general graph
 curve(logistic,from = -10,to = 10,xlab = "l",ylab = "logistic(l)")
 ```
 
-#### Logistic Regression Models
+### Logistic Regression Models
 
-This section will be devoted to the creation of the equivalent models created for the general linear regression analysis and their evaluation. For this purpose we create a new categorical column in the dataset called *dangerous_fire* with two levels: 
+This section will be devoted to the creation of the equivalent models created for the General Linear Regression analysis and their evaluation. For this purpose we create a new categorical column in the dataset called *dangerous_fire* with two levels: 
+
 - **0** if the corresponding *area* value is equal to 0 (for not dangerous fires)
+
 - **1** if the corresponding *area* value is greater than 0 (for dangerous fires)
 
 ```{r}
 #create the dataset with the new categorical variable
-drop_area <- names(fires) %in% c("area")
-fires_cat <- fires[!drop_area]
+drop_area <- names(fires_reg) %in% c("area")
+fires_cat <- fires_reg[!drop_area]
 
 #set the 2 levels
 fires_cat$dangerous_fire[fires$area == 0] <- 0
@@ -374,17 +428,17 @@ colnames(coeff)<-c("coefficients")
 coeff
 ```
 
-The coefficient of *temp* (0.03) in Logistic Regression correspond to the expected change in the log odds of being a big fire(*dangerous_fire = 1*) for a unit increase of *temp*, holding the other predictors at a fixed value (since as we saw it holds $logit(p_i) = \sum_{j=0}^{p-1} \beta_jX_{ij}$).
+The coefficient of *temp* (0.03) in Logistic Regression correspond to the expected change in the **log odds** of being a big fire(*dangerous_fire = 1*) for a unit increase of *temp*, holding the other predictors at a fixed value (since as we saw it holds $logit(p_i) = \sum_{j=0}^{p-1} \beta_jX_{ij}$).
 
-As far as the $l-1$ dummy variables created for *day* (where $l=7$) the coefficients represents the **odds ratio** of the odds that *dangerous_fire = 1* within that level of the categorical variable, compared to the odds of *dangerous_fire = 1* within the reference level (*daymon*). Let's take, for example, $\hat{\beta}_{daywed}$
+As far as the l-1 dummy variables created for *day* (where l=7) the coefficients represents the **odds ratio** of the odds that *dangerous_fire = 1* within that level of the categorical variable, compared to the odds of *dangerous_fire = 1* within the reference level (*daymon*). Let's take, for example, $\hat{\beta}_{daywed}$
 
 ```{r echo=FALSE}
-cat("daywed coefficient:", round(coeff[2],3))
+cat("daywed coefficient:", round(coeff[4],2))
 ```
 
-If we encode with *c* all the other members of the linear combination except for *daywed*, we can write the logit as: $$logit(p_i) = c + 0.026daywed$$
+If we encode with *c* all the other contributions to the linear combination except for *daywed*, we can write the logit as: $$logit(p_i) = c + 0.18daywed$$
 
-Being *daywed* a dummy variable, we can write $$logit(p_i) = logit(P(dangerous\_fire_i=1)) = \begin{cases}c + 0.026 &\mbox {if}\;  daywed\:\mbox=\:1 \\c
+Being *daywed* a dummy variable, we can write $$logit(p_i) = logit(P(dangerous\_fire_i=1)) = \begin{cases}c + 0.18 &\mbox {if}\;  daywed\:\mbox=\:1 \\c
 &\mbox {if}\;  daywed\:\mbox=\:0 \end{cases}$$
 
 Now we simply define 
@@ -395,10 +449,108 @@ Now we simply define
 
 and we can write the *daywed* coefficient as $$0.026 = log(\frac{\frac{p_{i1}}{1-p_{i1}}}{\frac{p_{i0}}{1-p_{i0}}})$$
 
-that is the logodds ratio, a measure of comparing probabilities of success under two situations, in this case comparing the the probability of having a big fire being *daywed* with respect to its reference level *daymon*.
+that is the **logodds ratio**, a measure of comparing probabilities of success under two situations, in this case comparing the the probability of having a big fire being *daywed* with respect to its reference level *daymon*.
+
+#### Smaller Models
+
+Equivalently to the section \@ref(smallerModelsLM), we will now create 4 different logistic regression models with different set of parameters and the complete one and evaluate their performances.
 
 ```{r}
 
+#create the four model inspired by Cortez work
+glm.big <- glm(dangerous_fire ~ .,data = fires_cat,family = binomial)
+glm.STFWI <- glm(dangerous_fire ~ X + Y + day + month + FFMC + ISI + 
+                 DMC + DC, data = fires_cat,family = binomial)
+glm.STM <- glm(dangerous_fire ~ X + Y + day + month + temp + RH + 
+               wind, data = fires_cat, family = binomial)
+glm.FWI <- glm(dangerous_fire ~ FFMC + ISI + DMC + DC,
+               data = fires_cat,family = binomial)
+glm.M <- glm(dangerous_fire ~ temp + RH + wind, data = fires_cat,
+             family = binomial)
 ```
 
+#### ANOVA Test and AIC
 
+For the first comparison of the models we will use again *ANOVA Test* and *AIC*: 
+
+```{r}
+#ANOVA test
+print(anova(glm.FWI,glm.STFWI,glm.big,test = "Chisq"))
+
+print(anova(glm.M,glm.STM,glm.big,test = "Chisq"))
+```
+
+As for the linear regression, in both cases we **don't** have enough evidence to **reject the null** hypothesis that the added coefficients have $\hat{\beta_i}=0$ in the medium models while we **fail to reject the null** in case of the big models.
+
+```{r}
+#AIC
+as.matrix(AIC(glm.big,glm.STFWI,glm.STM,glm.FWI,glm.M))
+```
+
+Basing on *AIC* and the *ANOVA Test*, also in the logistic scenario the *glm.STM* model seems to be the best choice.
+
+#### K-Fold Cross Validation
+
+Finally as last step lets compute K fold cross validation (K=10) to see how the different models perform basing on a the accuracy metric: $$Accuracy = \frac{TP + TN}{TP + TN + FP + FN}$$ that is suitable in this situation since the two classes in which the target variable have been divided are quite balanced 
+```{r echo=FALSE}
+table(fires_cat$dangerous_fire)
+```
+
+```{r  warning=FALSE}
+
+#Train the models
+glm_model.big <- train(dangerous_fire ~ .,data = fires_cat,method="glm", family= binomial,
+                   trControl = train.control)
+glm_model.STFWI <- train(dangerous_fire ~ X + Y + day + month + FFMC + ISI + DMC + DC, 
+                     data = fires_cat,method = "glm", family = binomial,trControl = train.control)
+glm_model.STM <- train(dangerous_fire ~ X + Y + day + month + temp + RH + wind, 
+                   data = fires_cat, method = "glm",family = binomial,trControl = train.control)
+glm_model.FWI <- train(dangerous_fire ~ FFMC + ISI + DMC + DC, 
+                   data = fires_cat,method = "glm", family = binomial,trControl = train.control)
+glm_model.M <- train(dangerous_fire ~ temp + RH + wind, 
+                 data = fires_cat,method = "glm", family = binomial,trControl = train.control)
+
+#summarize results
+glm_models <- c("big","STFWI","FWI","STM","M")
+Accuracy <- c(glm_model.big$results$Accuracy,glm_model.STFWI$results$Accuracy, 
+          glm_model.FWI$results$Accuracy,glm_model.STM$results$Accuracy,glm_model.M$results$Accuracy)
+
+glm_res.df <- data.frame(Accuracy)
+row.names(glm_res.df) <- glm_models
+as.matrix(glm_res.df)
+```
+
+The highest accuracy score is from the complete model, but as we saw in *AIC* and *ANOVA Test* the better accuracy performance cannot justify the high number of parameters. Considering the previous results and the accuracy score, let's consider **glm.STM** the best model and observe the confusion matrix to have some better insights on the prediction errors:
+
+```{r}
+#divide the dataset into train and test set 80-20
+smp_size <- floor(0.70 * nrow(fires_cat))
+
+## set the seed to make the partition reproducible
+set.seed(3)
+train_ind <- sample(seq_len(nrow(fires_cat)), size = smp_size)
+
+train <- fires_cat[train_ind, ]
+test <- fires_cat[-train_ind, ]
+
+#train the stm model on train subset
+glm_train.STM <- glm(dangerous_fire ~ X + Y + day + month + temp + RH + 
+               wind, data = train, family = binomial)
+
+#prediction on the test
+predictTest = predict(glm_train.STM,newdata = test,type = "response")
+
+# Confusion matrix on test set
+confusion_matrix(glm_train.STM,test)
+```
+
+From the confusion matrix we can observe that the model predict better the occurrence of large fires
+
+
+# Conclusions
+
+On our work we tried to face the challenging task of predicting the area of burned forest due to fires and the magnitude of the fire. Even if we did not obtain high prediction accuracy, we could derive from the models important informations that can help preventing big forest fires by studying the coefficients of the predictors (i.e thanks the analysis of the *day* and *month* coefficients we saw that turism may have a big role in Montesinho Park fires). 
+
+I believe that limitations are directly related to the dataset, since we are missing some useful information like **future weather** or **fire fighter response** that may cause a fire break even if it was potentially a big fire. This may be the reason behind the *logistic regression* setting where many small fires are predicted as big fires.
+
+# References
